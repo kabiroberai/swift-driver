@@ -19,7 +19,6 @@ import Darwin
 import Glibc
 #endif
 
-import TSCBasic // <<<
 import class TSCBasic.DiagnosticsEngine
 import class TSCBasic.ProcessSet
 import enum TSCBasic.ProcessEnv
