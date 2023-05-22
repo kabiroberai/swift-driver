@@ -13,7 +13,6 @@ import SwiftOptions
 
 import class Dispatch.DispatchQueue
 
-import TSCBasic // <<<
 import class TSCBasic.DiagnosticsEngine
 import enum TSCBasic.ProcessEnv
 import protocol TSCBasic.DiagnosticData
@@ -259,10 +258,10 @@ public struct Driver {
   /// Only present when the driver will be writing the record.
   /// Only used for reading when compiling incrementally.
   @_spi(Testing) public let buildRecordInfo: BuildRecordInfo?
-  
+
   /// Whether to consider incremental compilation.
   let shouldAttemptIncrementalCompilation: Bool
-  
+
   /// Code & data for incremental compilation. Nil if not running in incremental mode.
   /// Set during planning because needs the jobs to look at outputs.
   @_spi(Testing) public private(set) var incrementalCompilationState: IncrementalCompilationState? = nil
@@ -292,7 +291,7 @@ public struct Driver {
 
   /// Path to the dependencies file.
   let dependenciesFilePath: VirtualPath.Handle?
-  
+
   /// Path to the references dependencies file.
   let referenceDependenciesPath: VirtualPath.Handle?
 
@@ -455,23 +454,23 @@ public struct Driver {
     stdErrQueue.sync {
       let stream = stderrStream
       if !(diagnostic.location is UnknownLocation) {
-          stream <<< diagnostic.location.description <<< ": "
+          stream.send("\(diagnostic.location.description): ")
       }
 
       switch diagnostic.message.behavior {
       case .error:
-        stream <<< "error: "
+        stream.send("error: ")
       case .warning:
-        stream <<< "warning: "
+        stream.send("warning: ")
       case .note:
-        stream <<< "note: "
+        stream.send("note: ")
       case .remark:
-        stream <<< "remark: "
+        stream.send("remark: ")
       case .ignored:
           break
       }
 
-      stream <<< diagnostic.localizedDescription <<< "\n"
+      stream("\(diagnostic.localizedDescription)\n")
       stream.flush()
     }
   }
@@ -759,7 +758,7 @@ public struct Driver {
       targetInfo: frontendTargetInfo)
 
     Self.validateSanitizerAddressUseOdrIndicatorFlag(&parsedOptions, diagnosticEngine: diagnosticsEngine, addressSanitizerEnabled: enabledSanitizers.contains(.address))
-    
+
     Self.validateSanitizerRecoverArgValues(&parsedOptions, diagnosticEngine: diagnosticsEngine, enabledSanitizers: enabledSanitizers)
 
     Self.validateSanitizerCoverageArgs(&parsedOptions,
@@ -1372,7 +1371,7 @@ extension Driver {
 
     if parsedOptions.contains(.driverPrintOutputFileMap) {
       if let outputFileMap = self.outputFileMap {
-        stderrStream <<< outputFileMap.description
+        stderrStream.send(outputFileMap.description)
         stderrStream.flush()
       } else {
         diagnosticEngine.emit(.error_no_output_file_map_specified)
@@ -1449,14 +1448,14 @@ extension Driver {
       // Print the driver source version first before we print the compiler
       // versions.
       if inPlaceJob.kind == .versionRequest && !Driver.driverSourceVersion.isEmpty {
-        stderrStream <<< "swift-driver version: " <<< Driver.driverSourceVersion <<< " "
+        stderrStream.send("swift-driver version: \(Driver.driverSourceVersion) ")
         stderrStream.flush()
       }
       // In verbose mode, print out the job
       if parsedOptions.contains(.v) {
         let arguments: [String] = try executor.resolver.resolveArgumentList(for: inPlaceJob,
                                                                             useResponseFiles: forceResponseFiles ? .forced : .heuristic)
-        stdoutStream <<< arguments.map { $0.spm_shellEscaped() }.joined(separator: " ") <<< "\n"
+        stdoutStream("\(arguments.map { $0.spm_shellEscaped() }.joined(separator: " "))\n")
         stdoutStream.flush()
       }
       try executor.execute(job: inPlaceJob,
@@ -1563,7 +1562,7 @@ extension Driver {
       // Added for the sake of compatibility with the legacy driver.
       try? fileSystem.move(
         from: absPath, to: absPath.appending(component: absPath.basename + "~"))
-      
+
       guard let contents = buildRecord.encode(diagnosticEngine: diagnosticEngine) else {
         diagnosticEngine.emit(.warning_could_not_write_build_record(absPath))
         return
@@ -1582,14 +1581,13 @@ extension Driver {
     stdoutStream <<< #"# ""# <<< targetTriple.triple
     stdoutStream <<< #"" - ""# <<< job.tool.basename
     stdoutStream <<< #"", inputs: ["#
-    stdoutStream <<< job.displayInputs.map { "\"" + $0.file.name + "\"" }.joined(separator: ", ")
+    stdoutStream.send(job.displayInputs.map { "\"" + $0.file.name + "\"" }.joined(separator: ", "))
 
-    stdoutStream <<< "], output: {"
+    stdoutStream.send("], output: {")
 
-    stdoutStream <<< job.outputs.map { $0.type.name + ": \"" + $0.file.name + "\"" }.joined(separator: ", ")
+    stdoutStream.send(job.outputs.map { $0.type.name + ": \"" + $0.file.name + "\"" }.joined(separator: ", "))
 
-    stdoutStream <<< "}"
-    stdoutStream <<< "\n"
+    stdoutStream.send("}\n")
     stdoutStream.flush()
   }
 
@@ -1920,7 +1918,7 @@ extension Driver {
       // FIXME: The object-file default is carried over from the existing
       // driver, but seems odd.
       let fileType = FileType(rawValue: fileExtension) ?? FileType.object
-      
+
       if fileType == .swift {
         let basename = inputFile.basename
         if let originalPath = swiftFiles[basename] {
@@ -1934,28 +1932,28 @@ extension Driver {
 
       return TypedVirtualPath(file: inputHandle, type: fileType)
     }
-    
+
     if parsedOptions.hasArgument(.e) {
       if let mainPath = swiftFiles["main.swift"] {
         diagnosticsEngine.emit(.error_two_files_same_name(basename: "main.swift", firstPath: mainPath, secondPath: "-e"))
         diagnosticsEngine.emit(.note_explain_two_files_same_name)
         throw ErrorDiagnostics.emitted
       }
-      
+
       try withTemporaryDirectory(dir: fileSystem.tempDirectory, removeTreeOnDeinit: false) { absPath in
         let filePath = VirtualPath.absolute(absPath.appending(component: "main.swift"))
-        
+
         try fileSystem.writeFileContents(filePath) { file in
           file <<< ###"#sourceLocation(file: "-e", line: 1)\###n"###
           for option in parsedOptions.arguments(for: .e) {
             file <<< option.argument.asSingle <<< "\n"
           }
         }
-        
+
         paths.append(TypedVirtualPath(file: filePath.intern(), type: .swift))
       }
     }
-    
+
     return paths
   }
 
@@ -2080,11 +2078,11 @@ extension Diagnostic.Message {
   static var warn_ignore_embed_bitcode_marker: Diagnostic.Message {
     .warning("ignoring -embed-bitcode-marker since no object file is being generated")
   }
-  
+
   static func error_two_files_same_name(basename: String, firstPath: String, secondPath: String) -> Diagnostic.Message {
     .error("filename \"\(basename)\" used twice: '\(firstPath)' and '\(secondPath)'")
   }
-  
+
   static var note_explain_two_files_same_name: Diagnostic.Message {
     .note("filenames are used to distinguish private declarations with the same name")
   }
@@ -2349,7 +2347,7 @@ extension Diagnostic.Message {
   static var verify_debug_info_requires_debug_option: Diagnostic.Message {
     .warning("ignoring '-verify-debug-info'; no debug info is being generated")
   }
-  
+
   static func warning_option_requires_sanitizer(currentOption: Option, currentOptionValue: String, sanitizerRequired: Sanitizer) -> Diagnostic.Message {
       .warning("option '\(currentOption.spelling)\(currentOptionValue)' has no effect when '\(sanitizerRequired)' sanitizer is disabled. Use \(Option.sanitizeEQ.spelling)\(sanitizerRequired) to enable the sanitizer")
   }
@@ -2530,7 +2528,7 @@ extension Driver {
       }
       return true
     }
-    
+
     var used = [""]
     for item in aliasArgs {
       let arg = item.argument.asSingle
@@ -2874,7 +2872,7 @@ extension Driver {
       }
     }
   }
-  
+
   private static func validateSanitizerAddressUseOdrIndicatorFlag(
     _ parsedOptions: inout ParsedOptions,
     diagnosticEngine: DiagnosticsEngine,
@@ -2885,7 +2883,7 @@ extension Driver {
         .warning_option_requires_sanitizer(currentOption: .sanitizeAddressUseOdrIndicator, currentOptionValue: "", sanitizerRequired: .address))
     }
   }
-  
+
   /// Validates the set of `-sanitize-recover={sanitizer}` arguments
   private static func validateSanitizerRecoverArgValues(
     _ parsedOptions: inout ParsedOptions,
@@ -2909,14 +2907,14 @@ extension Driver {
           .error_invalid_arg_value(arg: .sanitizeRecoverEQ, value: arg))
         continue
       }
-      
+
       // only -sanitize-recover=address is supported
       if sanitizer != .address {
         diagnosticEngine.emit(
           .error_unsupported_argument(argument: arg, option: .sanitizeRecoverEQ))
         continue
       }
-      
+
       if !enabledSanitizers.contains(sanitizer) {
         diagnosticEngine.emit(
           .warning_option_requires_sanitizer(currentOption: .sanitizeRecoverEQ, currentOptionValue: arg, sanitizerRequired: sanitizer))
@@ -3219,7 +3217,7 @@ extension Driver {
            outputType: type) {
       return singleOutputPath
     }
-    
+
     // Emit-module discovered dependencies are always specified as a single-output
     // file
     if type == .emitModuleDependencies,
